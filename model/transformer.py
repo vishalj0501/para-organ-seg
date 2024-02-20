@@ -46,14 +46,14 @@ class Residual(nn.Module):
         return self.fn(x) + x
 
 class PreNorm(nn.Module):
-    def __init__(self, dim , fn):
+    def __init__(self, dim, fn):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.fn = fn
 
     def forward(self, x):
         return self.fn(self.norm(x))
-    
+
 class PreNormDrop(nn.Module):
     def __init__(self, dim, dropout_rate, fn):
         super().__init__()
@@ -63,6 +63,7 @@ class PreNormDrop(nn.Module):
 
     def forward(self, x):
         return self.dropout(self.fn(self.norm(x)))
+
     
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout_rate):
@@ -79,38 +80,42 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
-class IntermediateSequential(nn.Sequential):
+class IntermediateSequential(nn.Module):
     def __init__(self, *args, return_intermediate=True):
-        super().__init__(*args)
+        super().__init__()
+        self.args = args
         self.return_intermediate = return_intermediate
+        self.layers = nn.ModuleList(args)
 
-    def forward(self, input):
+    def forward(self, x):
         if not self.return_intermediate:
-            return super().forward(input)
-
+            output = x
+            for layer in self.layers:
+                output = layer(output)
+            return output
         intermediate_outputs = {}
-        output = input
-        for name, module in self.named_children():
-            output = intermediate_outputs[name] = module(output)
+        output = x
+
+        for i, layer in enumerate(self.layers):
+            output = intermediate_outputs[str(i)] = layer(output)
 
         return output, intermediate_outputs
-        
-
 
 
 class TransformerModel(nn.Module):
     def __init__(
         self,
-        dim,   #embedding_dim
+        dim,
         depth,
         heads,
         mlp_dim,
         dropout_rate=0.1,
         attn_dropout_rate=0.1,
+        return_intermediate=True,
     ):
         super().__init__()
         layers = []
-        for _ in range(depth):
+        for i in range(depth):
             layers.extend(
                 [
                     Residual(
@@ -126,7 +131,7 @@ class TransformerModel(nn.Module):
                 ]
             )
 
-        self.net = IntermediateSequential(*layers)
+        self.net = IntermediateSequential(*layers, return_intermediate=return_intermediate)
 
 
     def forward(self, x):
@@ -136,8 +141,19 @@ class TransformerModel(nn.Module):
     
 if __name__ == "__main__":
 
-    self_attn = SelfAttention(dim=512, heads=8, qkv_bias=False, qk_scale=None, dropout_rate=0.0)
-    x = torch.rand(1, 64, 512)
-    print(x.shape)
-    y = self_attn(x)
 
+    dim = 512
+    depth = 6
+    heads = 8
+    mlp_dim = 2048
+    dropout_rate = 0.1
+    attn_dropout_rate = 0.1
+    model = TransformerModel(dim, depth, heads, mlp_dim, dropout_rate, attn_dropout_rate)
+
+    batch_size = 4
+    sequence_length = 10
+    input_tensor = torch.rand(batch_size, sequence_length, dim)
+
+    output, intermediate_outputs = model(input_tensor)
+
+    print("Output shape:", output.shape)
